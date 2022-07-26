@@ -7,7 +7,6 @@ authors = ["Daniel Pereira <daniel@garajau.com.br>"]
 [tool.poetry.dependencies]
 python = "^3.10"
 dbus-next = "^0.2"
-systemd-python = { git = "https://github.com/systemd/python-systemd", rev = "b109b75" }
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"

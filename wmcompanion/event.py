@@ -4,7 +4,6 @@
 
 import os, sys, asyncio, logging, signal, traceback, gc
 from importlib.machinery import SourceFileLoader
-from systemd.daemon import notify
 from .errors import WMCompanionError, WMCompanionFatalError
 
 logger = logging.getLogger(__name__)
@@ -172,9 +171,6 @@ class EventWatcher:
             # Add the task
             self.run_coro(listener.start())
             logger.info(f"Listener {name} started")
-
-        # tell systemd we're good
-        notify("WATCHDOG=1")
 
         # run gc just to cleanup objects before starting
         gc.collect()
