@@ -28,7 +28,7 @@ class App:
         Setup the global application logging
         """
         log_level = "DEBUG" if self.verbose else "INFO"
-        log_format = "%(levelname)s %(filename)s:%(funcName)s():L%(lineno)d %(message)s"
+        log_format = "[%(levelname)s] [%(filename)s:%(funcName)s():L%(lineno)d] %(message)s"
         logging.basicConfig(level = log_level, format = log_format)
 
     def setup_index_module_exports(self):

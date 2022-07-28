@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from argparse import ArgumentParser
+from . import __version__
 from .app import App
 
 def main():
@@ -19,7 +20,7 @@ def main():
 
     parser = ArgumentParser(description=main.__doc__)
     parser.add_argument('-c', '--config-file', help='user config file path')
-    parser.add_argument('--version', action='version', version=1)
+    parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--verbose', action='store_true', help='increase the log verbosity')
 
     args = parser.parse_args()

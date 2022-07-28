@@ -130,7 +130,10 @@ class EventWatcher:
         Loads the user config file and expects that at the final of this step, we will have several
         listeners activated, each with at least one callback.
         """
-        SourceFileLoader("config", self.config_file).load_module()
+        try:
+            SourceFileLoader("config", self.config_file).load_module()
+        except FileNotFoundError as err:
+            raise WMCompanionFatalError(f"Config file not found at '{self.config_file}'") from err
 
     def run_coro(self, coro: asyncio.coroutine):
         """
