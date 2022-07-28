@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wmcompanion"
-version = "0.1.0"
+version = "0.1.1"
 license = "Apache-2.0"
 description = "wmcompanion is a utility for connecting system events to user actions"
 authors = ["Daniel Pereira <daniel@garajau.com.br>"]
@@ -16,5 +16,5 @@ pytest = "^5.2"
 wmcompanion = "wmcompanion.cli:main"
 
 [build-system]
-requires = ["poetry-core>=1.1.0"]
+requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
