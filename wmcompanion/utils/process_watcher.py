@@ -1,5 +1,5 @@
 # Copyright (c) 2022 Daniel Pereira
-# 
+#
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio, asyncio.subprocess
