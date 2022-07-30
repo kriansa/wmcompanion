@@ -25,17 +25,17 @@ bluetooth status notifications, keyboard layout visualizer, volume, network mana
 
 ## Usage
 
-While usable, this project is still at the _alpha_ stage and I still have things to figure out, such
-as channels of distribuition. Pip will probably be available at some point in the future, along with
-AUR packages as well. In the meantime, please clone this repo, install `poetry` and run:
+### Install
 
-```sh
-$ poetry update
-$ poetry run wmcompanion
-```
+Currently it's available as an OS package for Arch Linux. On other platforms, you can pull this
+repository, install `poetry` and run `poetry run wmcompanion`.
 
-It will obviously complain about a missing user config file on `~/.config/wmcompanion/config.py`,
-but you can simply use this one below:
+* [AUR][aur]
+
+### Configure
+
+You must add a config file on `~/.config/wmcompanion/config.py`. For starters, you can use the one
+below:
 
 ```python
 from wmcompanion import use, on
@@ -48,7 +48,7 @@ async def volume_level(volume: dict, notify: Notify):
     await notify(f"Your volume levels: {volume=}")
 ```
 
-And of course you can get inspired by the one I use.
+You can get really creative by reading the source files under `events` folder.
 
 ## Why not X?
 
@@ -118,3 +118,4 @@ extracted from Chris Billington's [inotify_simple][inotify-simple].
 [qtile-utils]: https://github.com/qtile/qtile/blob/master/libqtile/utils.py
 [inotify-simple]: https://github.com/chrisjbillington/inotify_simple/blob/master/inotify_simple.py
 [kbdd]: https://github.com/qnikst/kbdd
+[aur]: https://aur.archlinux.org/packages/wmcompanion
