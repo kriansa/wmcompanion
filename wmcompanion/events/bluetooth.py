@@ -15,16 +15,19 @@ class BluetoothRadioStatus(EventListener):
         # Get the initial state
         state = await client.call_method(
             destination = "org.bluez",
-            interface = "org.freedesktop.DBus.Properties",
-            path = "/org/bluez/hci0",
-            member = "Get",
-            signature = "ss",
-            body = ["org.bluez.Adapter1", "Powered"],
+            interface = "org.freedesktop.DBus.ObjectManager",
+            path = "/",
+            member = "GetManagedObjects",
+            signature = "",
+            body = [],
         )
 
-        await self.trigger({ "enabled": state.value })
+        for obj_name, props in state.items():
+            if "org.bluez.Adapter1" in props.keys():
+                await self.trigger({ "enabled": props['org.bluez.Adapter1']['Powered'].value })
 
         def property_changed(adapter, values, _, dbus_message):
+            if "/org/bluez/hci" not in dbus_message.path: return
             if adapter == "org.bluez.Adapter1" and "Powered" in values:
                 self.run_coro(self.trigger({ "enabled": values["Powered"].value }))
 
@@ -33,7 +36,6 @@ class BluetoothRadioStatus(EventListener):
             callback = property_changed,
             signal_name = "PropertiesChanged",
             dbus_interface = "org.freedesktop.DBus.Properties",
-            path = "/org/bluez/hci0",
         )
 
         if not subscribed:
