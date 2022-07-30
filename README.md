@@ -82,9 +82,11 @@ Currently there are the following event listeners available:
 * NetworkManager connection status (`events.network.NetworkConnectionStatus`)
 * NetworkManager Wi-Fi status/strength (`events.network.WifiStatus`)
 * Dunst notification pause status (`events.notifications.DunstPausedStatus`)
+* Power actions (`events.power.PowerActions`)
 
 The general idea is to develop events very easily and they can be reused by others, even if they are
-not integrated in this codebase -- they just need to extend the `event.EventListener` class.
+not integrated in this codebase -- they just need to extend the `event_listening.EventListener`
+class.
 
 ## Built-in modules
 
