@@ -1,10 +1,9 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
 from ..event_listening import EventListener
 from ..errors import WMCompanionError
-
-from concurrent.futures import ThreadPoolExecutor
 
 class PowerActions(EventListener):
     class Actions(Enum):
@@ -25,9 +24,6 @@ class PowerActions(EventListener):
         FULL = "Full"
 
     async def start(self):
-        self.previous_level = 0
-        self.previous_status = self.BatteryStatus.UNKNOWN
-
         await self.fetch_initial_state()
         self.run_coro(self.start_battery_poller())
         self.run_coro(self.start_acpi_listener())
@@ -36,6 +32,9 @@ class PowerActions(EventListener):
         power_source = await self.current_power_source()
         battery_level = await self.battery_current_level()
         battery_status = await self.battery_current_status()
+
+        self.previous_level = battery_level
+        self.previous_status = battery_status
 
         await self.trigger({
             "action": self.Actions.INITIAL_STATE,
@@ -49,9 +48,6 @@ class PowerActions(EventListener):
             return
 
         frequency = 60
-        self.previous_level = await self.battery_current_level()
-        self.previous_status = await self.battery_current_status()
-
         while await asyncio.sleep(frequency, True):
             await self.trigger_battery_report()
             frequency = 30 if self.previous_level <= 10 else 60
@@ -75,7 +71,6 @@ class PowerActions(EventListener):
         level = await self.battery_current_level()
         status = await self.battery_current_status()
 
-        if level == self.previous_level and status == self.previous_status: return
         self.previous_level = level
         self.previous_status = status
 
@@ -128,7 +123,10 @@ class PowerActions(EventListener):
             reader, writer = await asyncio.open_unix_connection("/var/run/acpid.socket")
             while line := (await reader.readline()).decode('utf-8').strip():
                 if "button/power" in line:
-                    await self.trigger({ "action": self.Actions.POWER_BUTTON_PRESS })
+                    await self.trigger(
+                        { "action": self.Actions.POWER_BUTTON_PRESS },
+                        allow_duplicate_events = True,
+                    )
                 elif "ac_adapter" in line:
                     if line.split(" ")[3] == "00000000":
                         source = self.PowerSource.BATTERY

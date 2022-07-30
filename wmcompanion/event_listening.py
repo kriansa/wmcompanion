@@ -39,7 +39,7 @@ class EventListener:
         """
         self.event_watcher.run_coro(coro)
 
-    async def trigger(self, value: dict = None):
+    async def trigger(self, value: dict = None, allow_duplicate_events: bool = False):
         """
         Executes all callbacks registered for that listener. Callbacks will receive the events in
         the order they have been registered.
@@ -47,9 +47,10 @@ class EventListener:
         Optionally, an arbitrary `value` can be passed and it will be forwarded to the callback
         function as the first argument. If passed, a value will be compared to its previous
         triggered value and will not continue if it is the same, so that we don't bother callbacks
-        with double triggering and avoid unecessary re-renders or duplicated notifications.
+        with double triggering and avoid unecessary re-renders or duplicated notifications. This
+        behavir is turned off you pass True to the parameter `allow_duplicate_events`.
         """
-        if value and value == self.previous_trigger_argument:
+        if not allow_duplicate_events and value and value == self.previous_trigger_argument:
             return
         self.previous_trigger_argument = value
 
