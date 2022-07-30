@@ -1,8 +1,9 @@
 # Copyright (c) 2022 Daniel Pereira
-# 
+#
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio, os, errno, glob, struct, logging
+from ..errors import WMCompanionError
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class Polybar:
                 reader, writer = await asyncio.open_unix_connection(name)
             except OSError as err:
                 if err.errno not in (errno.ENXIO, errno.ECONNREFUSED):
-                    raise CompanionException(f"Failed to connect to unix socket {name}") from err
+                    raise WMCompanionError(f"Failed to connect to unix socket {name}") from err
             finally:
                 try:
                     writer.write(data)
