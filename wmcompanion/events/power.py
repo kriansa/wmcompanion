@@ -1,5 +1,4 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
 from ..event_listening import EventListener
@@ -79,10 +78,6 @@ class PowerActions(EventListener):
             "battery-level": level,
             "battery-status": status,
         })
-
-    async def run_blocking_io(self, callback: callable) -> any:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            return await asyncio.get_running_loop().run_in_executor(executor, callback)
 
     async def current_power_source(self) -> PowerSource:
         def is_on_ac():

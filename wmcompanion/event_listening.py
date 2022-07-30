@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os, sys, asyncio, logging, signal, traceback, gc
+from concurrent.futures import ThreadPoolExecutor
 from importlib.machinery import SourceFileLoader
 from .errors import WMCompanionError, WMCompanionFatalError
 
@@ -38,6 +39,14 @@ class EventListener:
         expect from `asyncio.run()` - but it instead uses the same event loop the application is on.
         """
         self.event_watcher.run_coro(coro)
+
+    async def run_blocking_io(self, callback: callable) -> any:
+        """
+        Python asyncio does not natively support regular files, so in order to avoid blocking
+        functions in the loop, use this to spawn a separate thread to run blocking operations.
+        """
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return await asyncio.get_running_loop().run_in_executor(executor, callback)
 
     async def trigger(self, value: dict = None, allow_duplicate_events: bool = False):
         """
