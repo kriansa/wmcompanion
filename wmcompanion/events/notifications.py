@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from ..utils.dbus_client import DBusClient
-from ..event import EventListener
+from ..event_listening import EventListener
 
 class DunstPausedStatus(EventListener):
     """

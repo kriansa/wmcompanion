@@ -4,7 +4,7 @@
 
 from contextlib import suppress
 from ..utils.dbus_client import DBusClient, DBusClientError
-from ..event import EventListener
+from ..event_listening import EventListener
 
 class WifiStatus(EventListener):
     """

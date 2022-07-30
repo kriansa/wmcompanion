@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ..event import EventListener
+from ..event_listening import EventListener
 from ..utils.dbus_client import DBusClient
 
 class BluetoothRadioStatus(EventListener):

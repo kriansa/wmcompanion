@@ -4,7 +4,7 @@
 
 import os, sys, logging
 from .object_container import ObjectContainer
-from .event import EventWatcher
+from .event_listening import EventWatcher
 from .decorators import UseDecorator, OnDecorator
 
 class App:

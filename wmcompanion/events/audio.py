@@ -1,5 +1,5 @@
 # Copyright (c) 2022 Daniel Pereira
-# 
+#
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio, os
@@ -7,7 +7,7 @@ from decimal import Decimal
 from ..utils.dbus_client import DBusClient
 from ..utils.inotify_simple import INotify, flags as INotifyFlags
 from ..utils.process_watcher import ProcessWatcher
-from ..event import EventListener
+from ..event_listening import EventListener
 
 class MainVolumeLevel(EventListener):
     """

@@ -1,10 +1,10 @@
 # Copyright (c) 2022 Daniel Pereira
-# 
+#
 # SPDX-License-Identifier: Apache-2.0
 
 import functools, types
 from .object_container import ObjectContainer
-from .event import EventWatcher
+from .event_listening import EventWatcher
 
 class SoftDecorator:
     """
