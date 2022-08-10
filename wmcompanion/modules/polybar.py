@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio, os, errno, glob, struct, logging
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from ..errors import WMCompanionError
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,9 @@ class Polybar:
     Observe how the hook path filename must match the module name to have better results and be able
     to properly restart Polybar while maintaining the value set by wmcompanion.
     """
+    def __init__(self):
+        Path(f"{os.getenv('XDG_RUNTIME_DIR')}/polybar").mkdir(mode=0o700, exist_ok=True)
+
     def format(self, content: str, color: str = None) -> str:
         """
         Formats a string with the proper tags.
@@ -48,19 +53,24 @@ class Polybar:
         rendered.
         """
         content_str = " ".join(content)
-        self._write_module_content(module, content_str)
+        await self._write_module_content(module, content_str)
         await self._ipc_action(f"#{module}.send.{content_str}")
 
     # Make this object callable by invoking set_module_content
     __call__ = set_module_content
 
-    def _write_module_content(self, module: str, content: str):
+    async def _write_module_content(self, module: str, content: str):
         """
         Set the value of the content statically so that when polybar restarts it can pick up the
         value previously set
         """
-        with open(f"{os.getenv('XDG_RUNTIME_DIR')}/polybar/{module}", "w") as out:
-            out.write(content)
+        def sync_io():
+            with open(f"{os.getenv('XDG_RUNTIME_DIR')}/polybar/{module}", "w") as out:
+                out.write(content)
+
+        # REFACTOR: This is a copy of the same method on `event_listening.EventListener`
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            await asyncio.get_running_loop().run_in_executor(executor, sync_io)
 
     async def _ipc_action(self, cmd: str):
         """
