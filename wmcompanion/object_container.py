@@ -1,5 +1,5 @@
 # Copyright (c) 2022 Daniel Pereira
-# 
+#
 # SPDX-License-Identifier: Apache-2.0
 
 from .errors import WMCompanionError
@@ -23,7 +23,7 @@ class ObjectContainer:
         that object, but if not possible then an exception is raised instead.
         """
         if not name:
-            # If it's a class, then register it directly, otherwise register
+            # If it's a class, then register it directly
             if isinstance(value, type):
                 name = value.__name__
                 value = value() # We always instantiate it without args
