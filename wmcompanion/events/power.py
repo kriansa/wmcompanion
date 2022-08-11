@@ -63,8 +63,18 @@ class PowerActions(EventListener):
 
         frequency = 60
         while await asyncio.sleep(frequency, True):
-            await self.trigger_event(self.Events.BATTERY_LEVEL_CHANGE)
-            frequency = 30 if self.previous_level <= 10 else 60
+            battery_status = await self.current_battery_status()
+            battery_level = await self.current_battery_level()
+
+            # Nothing has changed, save one call
+            if battery_status == self.previous_status and battery_level == self.previous_level:
+                continue
+
+            await self.trigger_event(
+                self.Events.BATTERY_LEVEL_CHANGE,
+                battery_status=battery_status,
+                battery_level=battery_level,
+            )
 
             # Inteligently adjust the polling frequency:
             #
