@@ -112,7 +112,7 @@ class UseDecorator(SoftDecorator):
             # Set the object to the leftmost parameter of the function
             curried_function = functools.partial(curried_function, obj)
             # Wraps it and make it look like the original function
-            curried_function = functools.update_wrapper(curried_function, function)
+            curried_function = functools.update_wrapper(curried_function, function.original_function)
         return curried_function
 
 class OnDecorator(SoftDecorator):
@@ -127,6 +127,17 @@ class OnDecorator(SoftDecorator):
         ```
         @on(NetworkChange, ifname="eth0")
         ```
+
+    And you can also pass multiple events in the same decorator, given that it's either without
+    parameters like so:
+        ```
+        @on(NetworkChange, PowerActions)
+        ```
+
+    Or the parameters are wrapped in a list:
+        ```
+        @on([NetworkChange, dict(ifname="eth0")], [NetworkChange, { "ifname": "enp1s0" }])
+        ```
     """
     event_object: any = None
 
@@ -134,14 +145,27 @@ class OnDecorator(SoftDecorator):
         self.event_watcher = event_watcher
 
     def after_declared(self, function: callable, args: list, kwargs: dict):
-        event_klass = args[0]
-        attributes = kwargs
-        self.event_watcher.add_callback([event_klass, attributes], function)
+        if len(args) == 1:
+            args = [[args[0], kwargs]]
+
+        for event in args:
+            if isinstance(event, list):
+                event_klass = event[0]
+                attributes = event[1] if len(event) == 2 else {}
+            else:
+                event_klass = event
+                attributes = {}
+
+            self.event_watcher.add_callback([event_klass, attributes], function)
 
     def apply(self, function: callable, _args: list, _kwargs: dict):
         # Set the event object to the leftmost parameter of the function. The `event_object` is an
         # attribute set to the function by the EventListener when it triggers the function. After
-        # used, let's clean it up so we don't end up with a property we don't want to keep around.
+        # used, clean it up so we don't end up with a property we don't want to keep around.
+        #
+        # Mind you that this is not thread safe. Because all the work is done asynchronously on a
+        # single thread, it is fine. However, having multiple `on` callbacks on a function that
+        # triggers using different threads will ocasionally make this run into a race condition.
         event_object = function.event_object if hasattr(function, 'event_object') else None
         curried_function = functools.partial(function, event_object)
         if event_object: del function.event_object
