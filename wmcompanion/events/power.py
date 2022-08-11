@@ -1,4 +1,5 @@
 import asyncio
+from glob import glob
 from enum import Enum
 from pathlib import Path
 from ..event_listening import EventListener
@@ -9,38 +10,52 @@ class PowerActions(EventListener):
         INITIAL_STATE = "initial-state"
         BATTERY_LEVEL_CHANGE = "battery-level-change"
         POWER_BUTTON_PRESS = "power-button-press"
+        LID_CLOSE = "lid-close"
         POWER_SOURCE_SWITCH = "power-source-switch"
 
     class PowerSource(Enum):
         AC = "ac"
         BATTERY = "battery"
 
+    class LidState(Enum):
+        OPEN = "open"
+        CLOSED = "closed"
+
     class BatteryStatus(Enum):
-        NOT_CHARGING = "Not Charging"
+        NOT_CHARGING = "Not charging"
         CHARGING = "Charging"
         DISCHARGING = "Discharging"
         UNKNOWN = "Unknown"
         FULL = "Full"
 
     async def start(self):
-        await self.fetch_initial_state()
+        await self.trigger_action(self.Actions.INITIAL_STATE)
         self.run_coro(self.start_battery_poller())
         self.run_coro(self.start_acpi_listener())
 
-    async def fetch_initial_state(self):
-        power_source = await self.current_power_source()
-        battery_level = await self.battery_current_level()
-        battery_status = await self.battery_current_status()
+    async def trigger_action(
+        self, action: Actions,
+        power_source: PowerSource = None,
+        battery_status: BatteryStatus = None,
+        battery_level: int = None,
+        lid_state: LidState = None,
+    ):
+        if not power_source: power_source = await self.current_power_source()
+        if not battery_level: battery_level = await self.current_battery_level()
+        if not battery_status: battery_status = await self.current_battery_status()
+        if not lid_state: lid_state = await self.current_lid_state()
+        allow_duplicate_events = action in [self.Actions.POWER_BUTTON_PRESS, self.Actions.LID_CLOSE]
 
         self.previous_level = battery_level
         self.previous_status = battery_status
 
         await self.trigger({
-            "action": self.Actions.INITIAL_STATE,
+            "action": action,
             "power-source": power_source,
             "battery-level": battery_level,
             "battery-status": battery_status,
-        })
+            "lid-state": lid_state,
+        }, allow_duplicate_events=allow_duplicate_events)
 
     async def start_battery_poller(self):
         if not await self.system_has_battery():
@@ -48,7 +63,7 @@ class PowerActions(EventListener):
 
         frequency = 60
         while await asyncio.sleep(frequency, True):
-            await self.trigger_battery_report()
+            await self.trigger_action(self.Actions.BATTERY_LEVEL_CHANGE)
             frequency = 30 if self.previous_level <= 10 else 60
 
             # Inteligently adjust the polling frequency:
@@ -66,18 +81,16 @@ class PowerActions(EventListener):
             else:
                 frequency = 60
 
-    async def trigger_battery_report(self):
-        level = await self.battery_current_level()
-        status = await self.battery_current_status()
+    async def current_lid_state(self) -> LidState:
+        def lid_open():
+            lids = glob("/proc/acpi/button/lid/*/state")
+            lid_state_file = lids[0] if len(lids) == 1 else None
+            return lid_state_file and "open" in Path(lid_state_file).read_text("utf-8")
 
-        self.previous_level = level
-        self.previous_status = status
-
-        await self.trigger({
-            "action": self.Actions.BATTERY_LEVEL_CHANGE,
-            "battery-level": level,
-            "battery-status": status,
-        })
+        if await self.run_blocking_io(lid_open):
+            return self.LidState.OPEN
+        else:
+            return self.LidState.CLOSED
 
     async def current_power_source(self) -> PowerSource:
         def is_on_ac():
@@ -96,7 +109,7 @@ class PowerActions(EventListener):
 
         return await self.run_blocking_io(has_battery)
 
-    async def battery_current_status(self) -> BatteryStatus:
+    async def current_battery_status(self) -> BatteryStatus:
         def battery_status():
             """
             Blocking I/O that gets the battery status
@@ -106,7 +119,7 @@ class PowerActions(EventListener):
 
         return self.BatteryStatus(await self.run_blocking_io(battery_status))
 
-    async def battery_current_level(self) -> int:
+    async def current_battery_level(self) -> int:
         def battery_capacity():
             """Blocking I/O that gets the battery capacity"""
             return Path("/sys/class/power_supply/BAT0/capacity").read_text("utf-8")
@@ -118,20 +131,16 @@ class PowerActions(EventListener):
             reader, writer = await asyncio.open_unix_connection("/var/run/acpid.socket")
             while line := (await reader.readline()).decode('utf-8').strip():
                 if "button/power" in line:
-                    await self.trigger(
-                        { "action": self.Actions.POWER_BUTTON_PRESS },
-                        allow_duplicate_events = True,
-                    )
+                    await self.trigger_action(self.Actions.POWER_BUTTON_PRESS)
+                elif "button/lid" in line and "close" in line:
+                    await self.trigger_action(self.Actions.LID_CLOSE, lid_state=self.LidState.CLOSED)
                 elif "ac_adapter" in line:
                     if line.split(" ")[3] == "00000000":
                         source = self.PowerSource.BATTERY
                     else:
                         source = self.PowerSource.AC
 
-                    await self.trigger({
-                        "action": self.Actions.POWER_SOURCE_SWITCH,
-                        "power-source": source,
-                    })
+                    await self.trigger_action(self.Actions.POWER_SOURCE_SWITCH, power_source=source)
 
                     async def schedule_battery_report():
                         """
@@ -140,7 +149,7 @@ class PowerActions(EventListener):
                         after a plug/unplug event
                         """
                         await asyncio.sleep(5)
-                        await self.trigger_battery_report()
+                        await self.trigger_action(self.Actions.BATTERY_LEVEL_CHANGE)
 
                     self.run_coro(schedule_battery_report())
         except FileNotFoundError as err:
