@@ -6,7 +6,7 @@ from ..event_listening import EventListener
 from ..errors import WMCompanionError
 
 class PowerActions(EventListener):
-    class Actions(Enum):
+    class Events(Enum):
         INITIAL_STATE = "initial-state"
         BATTERY_LEVEL_CHANGE = "battery-level-change"
         POWER_BUTTON_PRESS = "power-button-press"
@@ -29,12 +29,12 @@ class PowerActions(EventListener):
         FULL = "Full"
 
     async def start(self):
-        await self.trigger_action(self.Actions.INITIAL_STATE)
+        await self.trigger_event(self.Events.INITIAL_STATE)
         self.run_coro(self.start_battery_poller())
         self.run_coro(self.start_acpi_listener())
 
-    async def trigger_action(
-        self, action: Actions,
+    async def trigger_event(
+        self, event: Events,
         power_source: PowerSource = None,
         battery_status: BatteryStatus = None,
         battery_level: int = None,
@@ -44,13 +44,13 @@ class PowerActions(EventListener):
         if not battery_level: battery_level = await self.current_battery_level()
         if not battery_status: battery_status = await self.current_battery_status()
         if not lid_state: lid_state = await self.current_lid_state()
-        allow_duplicate_events = action in [self.Actions.POWER_BUTTON_PRESS, self.Actions.LID_CLOSE]
+        allow_duplicate_events = event in [self.Events.POWER_BUTTON_PRESS, self.Events.LID_CLOSE]
 
         self.previous_level = battery_level
         self.previous_status = battery_status
 
         await self.trigger({
-            "action": action,
+            "event": event,
             "power-source": power_source,
             "battery-level": battery_level,
             "battery-status": battery_status,
@@ -63,7 +63,7 @@ class PowerActions(EventListener):
 
         frequency = 60
         while await asyncio.sleep(frequency, True):
-            await self.trigger_action(self.Actions.BATTERY_LEVEL_CHANGE)
+            await self.trigger_event(self.Events.BATTERY_LEVEL_CHANGE)
             frequency = 30 if self.previous_level <= 10 else 60
 
             # Inteligently adjust the polling frequency:
@@ -131,16 +131,16 @@ class PowerActions(EventListener):
             reader, writer = await asyncio.open_unix_connection("/var/run/acpid.socket")
             while line := (await reader.readline()).decode('utf-8').strip():
                 if "button/power" in line:
-                    await self.trigger_action(self.Actions.POWER_BUTTON_PRESS)
+                    await self.trigger_event(self.Events.POWER_BUTTON_PRESS)
                 elif "button/lid" in line and "close" in line:
-                    await self.trigger_action(self.Actions.LID_CLOSE, lid_state=self.LidState.CLOSED)
+                    await self.trigger_event(self.Events.LID_CLOSE, lid_state=self.LidState.CLOSED)
                 elif "ac_adapter" in line:
                     if line.split(" ")[3] == "00000000":
                         source = self.PowerSource.BATTERY
                     else:
                         source = self.PowerSource.AC
 
-                    await self.trigger_action(self.Actions.POWER_SOURCE_SWITCH, power_source=source)
+                    await self.trigger_event(self.Events.POWER_SOURCE_SWITCH, power_source=source)
 
                     async def schedule_battery_report():
                         """
@@ -149,7 +149,7 @@ class PowerActions(EventListener):
                         after a plug/unplug event
                         """
                         await asyncio.sleep(5)
-                        await self.trigger_action(self.Actions.BATTERY_LEVEL_CHANGE)
+                        await self.trigger_event(self.Events.BATTERY_LEVEL_CHANGE)
 
                     self.run_coro(schedule_battery_report())
         except FileNotFoundError as err:
