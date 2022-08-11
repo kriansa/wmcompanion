@@ -56,8 +56,8 @@ class EventListener:
         Optionally, an arbitrary `value` can be passed and it will be forwarded to the callback
         function as the first argument. If passed, a value will be compared to its previous
         triggered value and will not continue if it is the same, so that we don't bother callbacks
-        with double triggering and avoid unecessary re-renders or duplicated notifications. This
-        behavir is turned off you pass True to the parameter `allow_duplicate_events`.
+        with repetitive triggers and avoid unecessary re-renders or stacked notifications. This
+        behavior can be turned off if you pass True to the parameter `allow_duplicate_events`.
         """
         if not allow_duplicate_events and value and value == self.previous_trigger_argument:
             return
@@ -106,7 +106,7 @@ class EventWatcher:
 
         return self.listeners[lookup]
 
-    def add_callback(self, event: type, callback: asyncio.coroutine):
+    def add_callback(self, event: list[type, dict], callback: asyncio.coroutine):
         """
         Adds a function as a callback to an event listener. If that event listener is not yet
         registered, then it will be instantiated and registered accordingly before callback is set.
