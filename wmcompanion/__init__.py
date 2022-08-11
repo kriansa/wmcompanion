@@ -12,4 +12,4 @@
 # `app.App#setup_index_module_exports`, so if you need to find out what they are, just go and read
 # that method.
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
