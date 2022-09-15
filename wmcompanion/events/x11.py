@@ -1,3 +1,7 @@
+# Copyright (c) 2022 Daniel Pereira
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import asyncio, json, logging
 from pathlib import Path
 from ..event_listening import EventListener
@@ -8,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class ScreenState(EventListener):
     async def start(self):
-        cmd = ["python", Path(__file__).parent.joinpath("x11_screen_watcher.py")]
+        cmd = ["python", Path(__file__).parent.joinpath("libexec/x11_screen_watcher.py")]
         pw = ProcessWatcher(cmd, restart_every=3600)
         pw.on_start(self.read_events)
         pw.on_failure(self.on_failure)

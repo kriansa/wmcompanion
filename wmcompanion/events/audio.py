@@ -2,7 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio, os
+import asyncio
+from pathlib import Path
 from decimal import Decimal
 from ..utils.dbus_client import DBusClient
 from ..utils.inotify_simple import INotify, flags as INotifyFlags
@@ -15,7 +16,7 @@ class MainVolumeLevel(EventListener):
     Reacts to the main volume source/sink level changes.
     Uses wireplumber in order to do so, and be able to react to default sink/source changes.
     """
-    wp_state_file: str = os.path.expanduser("~/.local/state/wireplumber/default-nodes")
+    wp_state_file: Path = Path("~/.local/state/wireplumber/default-nodes").expanduser()
 
     AUDIO_DIRECTION_INPUT = "@DEFAULT_SOURCE@"
     AUDIO_DIRECTION_OUTPUT = "@DEFAULT_SINK@"
@@ -37,7 +38,7 @@ class MainVolumeLevel(EventListener):
                 return
 
     async def run_volume_watcher(self):
-        cmd = ["wpexec", os.path.dirname(__file__) + "/wireplumber-volume-watcher.lua"]
+        cmd = ["wpexec", Path(__file__).parent.joinpath("libexec/wireplumber-volume-watcher.lua")]
         pw = ProcessWatcher(cmd, restart_every=3600)
         self.restart_watcher = pw.restart
 
@@ -64,7 +65,7 @@ class MainVolumeLevel(EventListener):
         # Add a watcher for wireplumber state file so we can get to know when the default
         # input/output devices have changed and act upon it
         self.inotify = INotify()
-        self.inotify.add_watch(os.path.dirname(self.wp_state_file), INotifyFlags.CREATE)
+        self.inotify.add_watch(self.wp_state_file.parent, INotifyFlags.CREATE)
         # Then we add the IO file to the event loop
         asyncio.get_running_loop().add_reader(self.inotify, self.state_changed)
 
