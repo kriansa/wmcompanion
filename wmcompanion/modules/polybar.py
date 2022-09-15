@@ -94,9 +94,11 @@ class Polybar:
             finally:
                 try:
                     writer.write(data)
+                    logger.debug(f"polybar action sent to socket {name}: {payload}")
+
                     await writer.drain()
                     await reader.read()
-                    logger.debug(f"polybar action sent to socket {name}: {payload}")
-                finally:
                     writer.close()
                     await writer.wait_closed()
+                except:
+                    pass
