@@ -5,7 +5,7 @@
 import os, sys, asyncio, logging, signal, traceback, gc
 from concurrent.futures import ThreadPoolExecutor
 from importlib.machinery import SourceFileLoader
-from .errors import WMCompanionError, WMCompanionFatalError
+from .errors import WMCompanionFatalError
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,12 @@ class EventListener:
         self.event_watcher = event_watcher
         self.previous_trigger_argument = None
         self.callbacks = []
+
+    def name(self) -> str:
+        """
+        Full name of this class to help identifying it on logs
+        """
+        return ".".join([self.__class__.__module__, self.__class__.__name__])
 
     def add_callback(self, callback: callable):
         """
@@ -59,15 +65,18 @@ class EventListener:
         with repetitive triggers and avoid unecessary re-renders or stacked notifications. This
         behavior can be turned off if you pass True to the parameter `allow_duplicate_events`.
         """
-        if not allow_duplicate_events and value and value == self.previous_trigger_argument:
-            return
+        if not allow_duplicate_events and value and value == self.previous_trigger_argument: return
         self.previous_trigger_argument = value
 
         for callback in self.callbacks:
+            # Adds this class name as the `event-type` attribute on the value object callback
+            event = value.copy()
+            event["event-class"] = self.name()
+
             # Sets the event value object as a property of the callback, so that the @on decorator
             # can pick it up and pass it as the first argument to the function call.
             # See `decorators.OnDecorator#apply`.
-            callback.event_object = value
+            callback.event_object = event
             await (callback.with_decorators())()
 
     async def start(self):
@@ -89,6 +98,7 @@ class EventWatcher:
         self.listeners = {}
         self.loop = None
         self.tasks = set()
+        self.stopping = False
 
     def get_listener(self, listener: list[type, dict]) -> EventListener:
         """
@@ -132,7 +142,8 @@ class EventWatcher:
         sys.stdout.flush()
 
         if isinstance(context["exception"], WMCompanionFatalError):
-            if not self.stopping: self.stop()
+            if not self.stopping:
+                self.stop()
             os._exit(1)
 
     def load_user_config(self):
@@ -161,6 +172,15 @@ class EventWatcher:
         # But then ensure we clear its reference after it's finished
         task.add_done_callback(self.tasks.discard)
 
+    async def start_listener(self, listener: EventListener):
+        """
+        Encapsulate the initialization of the listener so it breaks if any exception is raised.
+        """
+        try:
+            await listener.start()
+        except:
+            raise WMCompanionFatalError(f"Failure while initializing listener {listener.name()}")
+
     def run(self):
         """
         Loads the user config, adds all required event listeners to the event loop and start it
@@ -168,25 +188,24 @@ class EventWatcher:
         self.loop = asyncio.new_event_loop()
         self.loop.set_exception_handler(self.exception_handler)
 
-        # load provided config with all definitions
+        # Load provided config with all definitions
         self.load_user_config()
 
         if len(self.listeners) == 0:
             logger.warning("No event listeners enabled. Exiting...")
             quit()
 
-        # add signal handlers
+        # Add signal handlers
         for sig in [signal.SIGINT, signal.SIGTERM]:
             self.loop.add_signal_handler(sig, self.stop)
 
-        # run all listeners in the event loop
+        # Run all listeners in the event loop
         for name, listener in self.listeners.items():
-            # Add the task
-            self.run_coro(listener.start())
+            self.run_coro(self.start_listener(listener))
             logger.info(f"Listener {name} started")
 
-        # run gc just to cleanup objects before starting
+        # Run GC just to cleanup objects before starting
         gc.collect()
 
-        # then make sure we run until we hit `stop()`
+        # Then make sure we run until we hit `stop()`
         self.loop.run_forever()

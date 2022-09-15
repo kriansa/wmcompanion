@@ -6,8 +6,9 @@ import asyncio, os
 from decimal import Decimal
 from ..utils.dbus_client import DBusClient
 from ..utils.inotify_simple import INotify, flags as INotifyFlags
-from ..utils.process_watcher import ProcessWatcher
+from ..utils.process import ProcessWatcher
 from ..event_listening import EventListener
+from ..errors import WMCompanionFatalError
 
 class MainVolumeLevel(EventListener):
     """
@@ -36,12 +37,8 @@ class MainVolumeLevel(EventListener):
                 return
 
     async def run_volume_watcher(self):
-        cmd = [
-            "wpexec",
-            os.path.dirname(__file__) + "/wireplumber-volume-watcher.lua",
-        ]
-
-        pw = ProcessWatcher(cmd, restart_every=3600, retries=3)
+        cmd = ["wpexec", os.path.dirname(__file__) + "/wireplumber-volume-watcher.lua"]
+        pw = ProcessWatcher(cmd, restart_every=3600)
         self.restart_watcher = pw.restart
 
         async def read_events(proc):
@@ -55,7 +52,7 @@ class MainVolumeLevel(EventListener):
                 await self.set_volume(direction, level, muted, available)
 
         async def on_fail():
-            raise CompanionFatalException("wireplumber-volume-watcher.lua failed multiple times")
+            raise WMCompanionFatalError("wireplumber-volume-watcher.lua initialization failed")
 
         pw.on_start(read_events)
         pw.on_failure(on_fail)
