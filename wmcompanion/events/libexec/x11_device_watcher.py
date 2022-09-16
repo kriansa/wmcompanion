@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Watch for screen plug/unplug events
+# Watch for screen, keyboard and mice plug/unplug events
 #
 # Dependencies:
 # - Required: xcffib       (Arch: python-xcffib)
@@ -12,16 +12,18 @@
 # * /usr/include/X11/X.h
 # * /usr/include/X11/extensions/Xrandr.h
 # * /usr/include/X11/extensions/randr.h
+# * /usr/include/X11/extensions/Xinput2.h
 
 import os, traceback, shutil, signal, sys, threading, socket
 import json, zlib, re, glob, concurrent.futures
+from enum import Enum
 
 class RPCPrinter:
     """Communicate with the main process through stdout messages"""
 
     @staticmethod
-    def event(e):
-        print(json.dumps({ "action": "event", "event": e }), flush=True)
+    def event(evtype: 'EventType', event: any):
+        print(json.dumps({ "action": evtype.value, "state": event }), flush=True)
 
     @staticmethod
     def exception(e):
@@ -32,24 +34,28 @@ class RPCPrinter:
         print(json.dumps({ "action": "error", "error": e }), flush=True)
 
 try:
-    import xcffib, xcffib.xproto, xcffib.randr
+    import xcffib, xcffib.randr, xcffib.xinput
+    from xcffib.xproto import GeGenericEvent, Atom
     from xcffib.randr import Connection, NotifyMask, ScreenChangeNotifyEvent
+    from xcffib.xinput import Device, DeviceType, EventMask, \
+        HierarchyInfo, HierarchyMask, \
+        XIDeviceInfo, XIEventMask
 except ModuleNotFoundError as e:
     RPCPrinter.error("Python xcffib module is not installed!")
     quit()
 
-class X11Client:
-    main_window_id = 0
-    randr = None
-    conn = None
 
+class EventType(Enum):
+    SCREEN_CHANGE = "screen-change"
+    INPUT_CHANGE = "input-change"
+
+
+class X11Client:
     def __init__(self):
         self.conn = xcffib.connect()
         self.randr = self.conn(xcffib.randr.key)
+        self.xinput = self.conn(xcffib.xinput.key)
         self.main_window_id = self.conn.get_setup().roots[self.conn.pref_screen].root
-
-    def disconnect(self):
-        self.conn.disconnect()
 
     def get_monitor_unique_id(self, output: int):
         edid = self.get_output_edid(output)
@@ -63,7 +69,7 @@ class X11Client:
         for atom in atoms:
             name = self.conn.core.GetAtomName(atom).reply().name.raw.decode('ascii')
             if name == "EDID":
-                type_int = xcffib.xproto.Atom.INTEGER
+                type_int = Atom.INTEGER
                 reply = self.randr.GetOutputProperty(output, atom, type_int, 0, 2048, False, False).reply()
                 return reply.data
 
@@ -85,8 +91,38 @@ class X11Client:
 
         return monitors
 
-    def listen_monitor_plug_events(self, callback):
+    X11_INPUT_TYPES = [
+        DeviceType.MasterPointer, DeviceType.MasterKeyboard, DeviceType.SlavePointer,
+        DeviceType.SlaveKeyboard, DeviceType.FloatingSlave
+    ]
+
+    X11_INPUT_TYPES_STR = {
+        DeviceType.MasterPointer: "master-pointer",
+        DeviceType.MasterKeyboard: "master-keyboard",
+        DeviceType.SlavePointer: "slave-pointer",
+        DeviceType.SlaveKeyboard: "slave-keyboard",
+        DeviceType.FloatingSlave: "floating-slave",
+    }
+
+    def get_connected_inputs(self):
+        inputs = []
+        for info in self.xinput.XIQueryDevice(Device.All).reply().infos:
+            if info.type in self.X11_INPUT_TYPES:
+                inputs.append({
+                    "id": info.deviceid,
+                    "type": self.X11_INPUT_TYPES_STR[info.type],
+                    "name": info.name.raw.decode('utf-8'),
+                })
+
+        return inputs
+
+    def listen_device_connection_events(self, callback):
+        # Watch for both randr screen change
         self.randr.SelectInput(self.main_window_id, NotifyMask.ScreenChange)
+        # And XI2 device tree change
+        mask = EventMask.synthetic(Device.All, 1, [XIEventMask.Hierarchy])
+        self.xinput.XISelectEvents(self.main_window_id, 1, [mask])
+
         self.conn.flush()
         stop = threading.Event()
 
@@ -106,7 +142,6 @@ class X11Client:
             finally:
                 stop.set()
 
-
         while True:
             event = {}
             stop.clear()
@@ -124,11 +159,11 @@ class X11Client:
             if type(event["value"]) == Exception:
                 raise event["value"]
 
-            # Ignore unrelated events
-            if type(event["value"]) != ScreenChangeNotifyEvent:
-                continue
+            if type(event["value"]) == GeGenericEvent:
+                callback(EventType.INPUT_CHANGE)
 
-            callback()
+            if type(event["value"]) == ScreenChangeNotifyEvent:
+                callback(EventType.SCREEN_CHANGE)
 
 
 class MonitorLid:
@@ -164,16 +199,12 @@ class MonitorLid:
             return "open" in f.read()
 
 
-class MonitorStatusReader:
-    x11_client = None
-    consider_lid = True
-
-    # For plug/unplugging change detection
-    current_state = []
-
+class DeviceStatusReader:
     def __init__(self):
         self.x11_client = X11Client()
         self.consider_lid = MonitorLid.instance().is_present
+        self.device_state = []
+        self.screen_state = []
 
     def listen_changes(self):
         signal.signal(signal.SIGINT, self._exit_handler)
@@ -182,8 +213,9 @@ class MonitorStatusReader:
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = []
 
-            # Print the initial state right off the bat
-            futures.append(executor.submit(self.dispatch_current_state))
+            # Print the initial state on startup
+            futures.append(executor.submit(self.dispatch_display_state))
+            futures.append(executor.submit(self.dispatch_device_state))
 
             # Start the XCB listener
             futures.append(executor.submit(self._x11_listener))
@@ -200,23 +232,54 @@ class MonitorStatusReader:
                     RPCPrinter.exception(exc)
                     os._exit(0)
 
-    def get_connected_monitors(self, state):
+    def get_active_screens(self, state):
+        """
+        Filter screens that are really considered active based on their lid state, if applicable
+        """
         def monitor_is_on(mon):
             return not self.consider_lid or MonitorLid.instance().is_open(mon["output"])
 
         return [mon for mon in state if monitor_is_on(mon)]
 
-    def dispatch_current_state(self):
-        # Refresh the X11 state
-        previous_state = self.current_state
-        self.current_state = self.get_connected_monitors(self.x11_client.get_connected_outputs())
+    def dispatch_device_state(self):
+        previous_state = self.device_state
+        self.device_state = self.x11_client.get_connected_inputs()
 
-        # Avoid dispatching events if the state hasn't really changed (X11 GetScreenResources may be
-        # triggered by any xrandr event such as monitor rearrangement)
-        if previous_state == self.current_state:
+        # Avoid dispatching events if the state hasn't really changed
+        if previous_state == self.device_state:
             return
 
-        RPCPrinter.event(self.current_state)
+        event = { "active": self.device_state }
+
+        # Check what's changed specifically
+        added = [x for x in self.device_state if x not in previous_state]
+        removed = [x for x in previous_state if x not in self.device_state]
+        if added:
+            event["added"] = added
+        if removed:
+            event["removed"] = removed
+
+        RPCPrinter.event(EventType.INPUT_CHANGE, event)
+
+    def dispatch_display_state(self):
+        previous_state = self.screen_state
+        self.screen_state = self.get_active_screens(self.x11_client.get_connected_outputs())
+
+        # Avoid dispatching events if the state hasn't really changed
+        if previous_state == self.screen_state:
+            return
+
+        event = { "active": self.screen_state }
+        RPCPrinter.event(EventType.SCREEN_CHANGE, event)
+
+    def _handle_x11_callback(self, event: EventType):
+        match event:
+            case EventType.SCREEN_CHANGE:
+                self.dispatch_display_state()
+            case EventType.INPUT_CHANGE:
+                self.dispatch_device_state()
+            case _:
+                raise RuntimeError(f"Unable to understand X11Client callback response: {event}")
 
     def _acpi_listener(self):
         last_state = "open" if MonitorLid.instance().is_open() else "closed"
@@ -232,15 +295,15 @@ class MonitorStatusReader:
                     continue
 
                 last_state = current_state
-                self.dispatch_current_state()
+                self.dispatch_display_state()
 
     def _x11_listener(self):
-        self.x11_client.listen_monitor_plug_events(self.dispatch_current_state)
+        self.x11_client.listen_device_connection_events(self._handle_x11_callback)
 
     def _exit_handler(self, *_):
         print("SIGINT received, exiting...", file=sys.stderr, flush=True)
         os._exit(0)
 
 if __name__ == "__main__":
-    monitor_status_reader = MonitorStatusReader()
+    monitor_status_reader = DeviceStatusReader()
     monitor_status_reader.listen_changes()
