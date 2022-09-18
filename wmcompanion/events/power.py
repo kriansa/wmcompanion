@@ -2,12 +2,14 @@ import asyncio
 from glob import glob
 from enum import Enum
 from pathlib import Path
+from ..utils.dbus_client import DBusClient
 from ..event_listening import EventListener
 from ..errors import WMCompanionError
 
 class PowerActions(EventListener):
     class Events(Enum):
         INITIAL_STATE = "initial-state"
+        RETURN_FROM_SLEEP = "return-from-sleep"
         BATTERY_LEVEL_CHANGE = "battery-level-change"
         POWER_BUTTON_PRESS = "power-button-press"
         POWER_SOURCE_SWITCH = "power-source-switch"
@@ -26,6 +28,7 @@ class PowerActions(EventListener):
     async def start(self):
         await self.start_battery_poller()
         await self.start_acpi_listener()
+        await self.start_wakeup_detector()
         await self.trigger_event(self.Events.INITIAL_STATE)
 
     async def trigger_event(
@@ -37,7 +40,10 @@ class PowerActions(EventListener):
         if not power_source: power_source = await self.current_power_source()
         if not battery_level: battery_level = await self.current_battery_level()
         if not battery_status: battery_status = await self.current_battery_status()
-        allow_duplicate_events = event == self.Events.POWER_BUTTON_PRESS
+        allow_duplicate_events = event in [
+            self.Events.POWER_BUTTON_PRESS,
+            self.Events.RETURN_FROM_SLEEP,
+        ]
 
         self.previous_level = battery_level
         self.previous_status = battery_status
@@ -133,6 +139,23 @@ class PowerActions(EventListener):
             self.run_coro(self.acpi_listener(reader))
         except FileNotFoundError as err:
             raise WMCompanionError(f"ACPI socket not found. Listener can't be started.") from err
+
+    async def start_wakeup_detector(self):
+        """Detects when the system has returned from sleep or hibernation"""
+        def prepare_for_sleep(sleeping: bool, **_):
+            if not sleeping:
+                self.run_coro(self.trigger_event(self.Events.RETURN_FROM_SLEEP))
+
+        self.dbus = DBusClient(session_bus=False)
+        subscribed = await self.dbus.add_signal_receiver(
+            callback=prepare_for_sleep,
+            signal_name="PrepareForSleep",
+            dbus_interface="org.freedesktop.login1.Manager",
+        )
+
+        if not subscribed:
+            logger.warning("Could not subscribe to DBus PrepareForSleep signal.")
+            raise RuntimeError("Fail to setup logind DBus signal receiver for PrepareForSleep")
 
     async def acpi_listener(self, reader: asyncio.StreamReader):
         while line := (await reader.readline()).decode('utf-8').strip():
