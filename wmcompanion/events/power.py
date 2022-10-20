@@ -1,13 +1,31 @@
+# Copyright (c) 2022 Daniel Pereira
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import asyncio
-from glob import glob
+import logging
 from enum import Enum
 from pathlib import Path
-from ..utils.dbus_client import DBusClient
+from ..utils.dbus_client import SystemDBusClient
 from ..event_listening import EventListener
 from ..errors import WMCompanionError
 
+logger = logging.getLogger(__name__)
+
+
 class PowerActions(EventListener):
+    """
+    PowerActions will listen for all possible power related events, such as power source switch and
+    battery level changes, then proceed with notifying the callbacks with the current system power
+    state.
+    """
+
+    previous_level: int = 0
+    previous_status: "BatteryStatus" = None
+
     class Events(Enum):
+        """The kind of event that's been triggered"""
+
         INITIAL_STATE = "initial-state"
         RETURN_FROM_SLEEP = "return-from-sleep"
         BATTERY_LEVEL_CHANGE = "battery-level-change"
@@ -15,10 +33,14 @@ class PowerActions(EventListener):
         POWER_SOURCE_SWITCH = "power-source-switch"
 
     class PowerSource(Enum):
+        """The current computer power source"""
+
         AC = "ac"
         BATTERY = "battery"
 
     class BatteryStatus(Enum):
+        """The current status of the battery"""
+
         NOT_CHARGING = "Not charging"
         CHARGING = "Charging"
         DISCHARGING = "Discharging"
@@ -32,14 +54,21 @@ class PowerActions(EventListener):
         await self.trigger_event(self.Events.INITIAL_STATE)
 
     async def trigger_event(
-        self, event: Events,
+        self,
+        event: Events,
         power_source: PowerSource = None,
         battery_status: BatteryStatus = None,
         battery_level: int = None,
     ):
-        if not power_source: power_source = await self.current_power_source()
-        if not battery_level: battery_level = await self.current_battery_level()
-        if not battery_status: battery_status = await self.current_battery_status()
+        """
+        Triggers a power event with current power state
+        """
+        if not power_source:
+            power_source = await self.current_power_source()
+        if not battery_level:
+            battery_level = await self.current_battery_level()
+        if not battery_status:
+            battery_status = await self.current_battery_status()
         allow_duplicate_events = event in [
             self.Events.POWER_BUTTON_PRESS,
             self.Events.RETURN_FROM_SLEEP,
@@ -48,25 +77,38 @@ class PowerActions(EventListener):
         self.previous_level = battery_level
         self.previous_status = battery_status
 
-        await self.trigger({
-            "event": event,
-            "power-source": power_source,
-            "battery-level": battery_level,
-            "battery-status": battery_status,
-        }, allow_duplicate_events=allow_duplicate_events)
+        await self.trigger(
+            {
+                "event": event,
+                "power-source": power_source,
+                "battery-level": battery_level,
+                "battery-status": battery_status,
+            },
+            allow_duplicate_events=allow_duplicate_events,
+        )
 
     async def start_battery_poller(self):
-        if not await self.system_has_battery(): return
+        """
+        Starts a battery level poller that is only activated if the system has a battery
+        """
+        if not await self.system_has_battery():
+            return
         self.run_coro(self.battery_poller())
 
     async def battery_poller(self):
+        """
+        Polls the battery for level changes and triggers an event upon a state change
+        """
         frequency = 60
         while await asyncio.sleep(frequency, True):
             battery_status = await self.current_battery_status()
             battery_level = await self.current_battery_level()
 
             # Nothing has changed, save one call
-            if battery_status == self.previous_status and battery_level == self.previous_level:
+            if (
+                battery_status == self.previous_status
+                and battery_level == self.previous_level
+            ):
                 continue
 
             await self.trigger_event(
@@ -91,16 +133,27 @@ class PowerActions(EventListener):
                 frequency = 60
 
     async def current_power_source(self) -> PowerSource:
+        """
+        Retrieves the current system power source
+        """
+
         def is_on_ac():
-            return not Path("/sys/class/power_supply/AC").is_dir() or \
-                Path("/sys/class/power_supply/AC/online").read_text("utf-8").strip() == "1"
+            return (
+                not Path("/sys/class/power_supply/AC").is_dir()
+                or Path("/sys/class/power_supply/AC/online").read_text("utf-8").strip()
+                == "1"
+            )
 
         if await self.run_blocking_io(is_on_ac):
             return self.PowerSource.AC
-        else:
-            return self.PowerSource.BATTERY
+
+        return self.PowerSource.BATTERY
 
     async def system_has_battery(self) -> bool:
+        """
+        Checks whether the system has a battery
+        """
+
         def has_battery():
             """Blocking I/O that gets whether this system has battery or not"""
             return Path("/sys/class/power_supply/BAT0").is_dir()
@@ -108,16 +161,26 @@ class PowerActions(EventListener):
         return await self.run_blocking_io(has_battery)
 
     async def current_battery_status(self) -> BatteryStatus:
+        """
+        Get the current battery status
+        """
+
         def battery_status():
             """
             Blocking I/O that gets the battery status
             (Not Charging, Charging, Discharging, Unknown, Full)
             """
-            return Path("/sys/class/power_supply/BAT0/status").read_text("utf-8").strip()
+            return (
+                Path("/sys/class/power_supply/BAT0/status").read_text("utf-8").strip()
+            )
 
         return self.BatteryStatus(await self.run_blocking_io(battery_status))
 
     async def current_battery_level(self) -> int:
+        """
+        Get the current battery level
+        """
+
         def battery_capacity():
             """Blocking I/O that gets the battery capacity"""
             return Path("/sys/class/power_supply/BAT0/capacity").read_text("utf-8")
@@ -125,6 +188,10 @@ class PowerActions(EventListener):
         return int(await self.run_blocking_io(battery_capacity))
 
     async def system_has_acpi(self) -> bool:
+        """
+        Checks whether the system has ACPI daemon installed
+        """
+
         def has_acpi():
             """Blocking I/O that gets whether this system has acpid installed or not"""
             return Path("/etc/acpi").is_dir()
@@ -132,22 +199,32 @@ class PowerActions(EventListener):
         return await self.run_blocking_io(has_acpi)
 
     async def start_acpi_listener(self):
-        if not await self.system_has_acpi(): return
+        """
+        Starts the ACPI daemon listener that helps detecting power events such as power button or
+        power source changes
+        """
+        if not await self.system_has_acpi():
+            return
 
         try:
-            reader, _writer = await asyncio.open_unix_connection("/var/run/acpid.socket")
-            self.run_coro(self.acpi_listener(reader))
+            reader, _writer = await asyncio.open_unix_connection(
+                "/var/run/acpid.socket"
+            )
+            self.run_coro(self.acpid_event(reader))
         except FileNotFoundError as err:
-            raise WMCompanionError(f"ACPI socket not found. Listener can't be started.") from err
+            raise WMCompanionError(
+                "ACPI socket not found. Listener can't be started."
+            ) from err
 
     async def start_wakeup_detector(self):
         """Detects when the system has returned from sleep or hibernation"""
+
         def prepare_for_sleep(sleeping: bool, **_):
             if not sleeping:
                 self.run_coro(self.trigger_event(self.Events.RETURN_FROM_SLEEP))
 
-        self.dbus = DBusClient(session_bus=False)
-        subscribed = await self.dbus.add_signal_receiver(
+        dbus = SystemDBusClient()
+        subscribed = await dbus.add_signal_receiver(
             callback=prepare_for_sleep,
             signal_name="PrepareForSleep",
             dbus_interface="org.freedesktop.login1.Manager",
@@ -155,10 +232,16 @@ class PowerActions(EventListener):
 
         if not subscribed:
             logger.warning("Could not subscribe to DBus PrepareForSleep signal.")
-            raise RuntimeError("Fail to setup logind DBus signal receiver for PrepareForSleep")
+            raise RuntimeError(
+                "Fail to setup logind DBus signal receiver for PrepareForSleep"
+            )
 
-    async def acpi_listener(self, reader: asyncio.StreamReader):
-        while line := (await reader.readline()).decode('utf-8').strip():
+    async def acpid_event(self, reader: asyncio.StreamReader):
+        """
+        Callback called when there's any ACPI daemon event triggered, then converts them to
+        wmcompanion ones
+        """
+        while line := (await reader.readline()).decode("utf-8").strip():
             if "button/power" in line:
                 await self.trigger_event(self.Events.POWER_BUTTON_PRESS)
             elif "ac_adapter" in line:
@@ -167,7 +250,9 @@ class PowerActions(EventListener):
                 else:
                     source = self.PowerSource.AC
 
-                await self.trigger_event(self.Events.POWER_SOURCE_SWITCH, power_source=source)
+                await self.trigger_event(
+                    self.Events.POWER_SOURCE_SWITCH, power_source=source
+                )
 
                 async def schedule_battery_report():
                     """

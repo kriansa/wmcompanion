@@ -2,12 +2,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os, sys, asyncio, logging, signal, traceback, gc
+import os
+import sys
+import asyncio
+import logging
+import signal
+import traceback
+import gc
 from concurrent.futures import ThreadPoolExecutor
+from importlib.util import spec_from_loader, module_from_spec
 from importlib.machinery import SourceFileLoader
 from .errors import WMCompanionFatalError
 
 logger = logging.getLogger(__name__)
+
 
 class EventListener:
     """
@@ -21,7 +29,8 @@ class EventListener:
     automatically instantiated by EventWatcher whenever there's at least one `@on` decorator using
     it.
     """
-    def __init__(self, event_watcher: 'EventWatcher'):
+
+    def __init__(self, event_watcher: "EventWatcher"):
         self.event_watcher = event_watcher
         self.previous_trigger_argument = None
         self.callbacks = []
@@ -65,7 +74,12 @@ class EventListener:
         with repetitive triggers and avoid unecessary re-renders or stacked notifications. This
         behavior can be turned off if you pass True to the parameter `allow_duplicate_events`.
         """
-        if not allow_duplicate_events and value and value == self.previous_trigger_argument: return
+        if (
+            not allow_duplicate_events
+            and value
+            and value == self.previous_trigger_argument
+        ):
+            return
         self.previous_trigger_argument = value
 
         for callback in self.callbacks:
@@ -85,7 +99,7 @@ class EventListener:
         required and instantiated. Usually, it is meant to start some sort of system listener and
         register the `trigger()` as a callback to it.
         """
-        pass
+
 
 class EventWatcher:
     """
@@ -93,6 +107,7 @@ class EventWatcher:
     dynamically registering EventListeners, adding callbacks to them and finally running an infinite
     event loop so that async functions can be executed on.
     """
+
     def __init__(self, config_file: str):
         self.config_file = config_file
         self.listeners = {}
@@ -109,7 +124,7 @@ class EventWatcher:
         if attributes:
             lookup += f"[{str(attributes)}]"
 
-        if not lookup in self.listeners:
+        if lookup not in self.listeners:
             self.listeners[lookup] = klass(self)
             for attribute, value in attributes.items():
                 setattr(self.listeners[lookup], attribute, value)
@@ -134,7 +149,11 @@ class EventWatcher:
 
         self.loop.stop()
 
+    # pylint: disable-next=unused-argument
     def exception_handler(self, loop: asyncio.AbstractEventLoop, context: dict):
+        """
+        Default exception handler for every EventListener event loop.
+        """
         if "exception" not in context:
             return
 
@@ -144,7 +163,7 @@ class EventWatcher:
         if isinstance(context["exception"], WMCompanionFatalError):
             if not self.stopping:
                 self.stop()
-            os._exit(1)
+            os._exit(1)  # pylint: disable=protected-access
 
     def load_user_config(self):
         """
@@ -152,11 +171,15 @@ class EventWatcher:
         listeners activated, each with at least one callback.
         """
         try:
-            SourceFileLoader("config", self.config_file).load_module()
+            loader = SourceFileLoader("config", self.config_file)
+            mod = module_from_spec(spec_from_loader(loader.name, loader))
+            loader.exec_module(mod)
         except FileNotFoundError as err:
-            raise WMCompanionFatalError(f"Config file not found at '{self.config_file}'") from err
+            raise WMCompanionFatalError(
+                f"Config file not found at '{self.config_file}'"
+            ) from err
 
-    def run_coro(self, coro: asyncio.coroutine):
+    def run_coro(self, coro: asyncio.coroutine) -> asyncio.Task:
         """
         As recommended by Python docs, add the coroutine to a set before adding it to the loop. This
         creates a strong reference and prevents it being garbage-collected before it is done.
@@ -172,14 +195,18 @@ class EventWatcher:
         # But then ensure we clear its reference after it's finished
         task.add_done_callback(self.tasks.discard)
 
+        return task
+
     async def start_listener(self, listener: EventListener):
         """
         Encapsulate the initialization of the listener so it breaks if any exception is raised.
         """
         try:
             await listener.start()
-        except:
-            raise WMCompanionFatalError(f"Failure while initializing listener {listener.name()}")
+        except Exception as exc:
+            raise WMCompanionFatalError(
+                f"Failure while initializing listener {listener.name()}"
+            ) from exc
 
     def run(self):
         """
@@ -193,7 +220,7 @@ class EventWatcher:
 
         if len(self.listeners) == 0:
             logger.warning("No event listeners enabled. Exiting...")
-            quit()
+            sys.exit()
 
         # Add signal handlers
         for sig in [signal.SIGINT, signal.SIGTERM]:
@@ -202,7 +229,7 @@ class EventWatcher:
         # Run all listeners in the event loop
         for name, listener in self.listeners.items():
             self.run_coro(self.start_listener(listener))
-            logger.info(f"Listener {name} started")
+            logger.info("Listener %s started", name)
 
         # Run GC just to cleanup objects before starting
         gc.collect()

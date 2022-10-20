@@ -1,42 +1,133 @@
 # Copyright (c) 2022 Daniel Pereira
-# 
+#
 # SPDX-License-Identifier: Apache-2.0 AND MIT
 
 import logging
-from dbus_next import AuthError, Message, Variant
+
+# pylint: disable-next=unused-import
+from dbus_next import Message, Variant
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType, MessageType
 
 logger = logging.getLogger(__package__)
 
+
 class DBusClientError(Exception):
-    pass
+    """
+    Base error class for DBus related exceptions
+    """
+
 
 class DBusClient:
-    session_bus: bool = True
-    bus: MessageBus = None
+    """
+    Base DBus client class
+    """
 
-    def __init__(self, session_bus = True):
-        self.session_bus = session_bus
+    def __init__(self, bus_type: BusType):
+        self.bus_type = bus_type
+        self.bus = None
 
     async def connect(self) -> None:
-        if self.bus is not None:
+        """
+        Connects to DBus allowing this instance to call methods
+        """
+        if self.bus:
             return
 
-        if self.session_bus:
-            bus_type = BusType.SESSION
-        else:
-            bus_type = BusType.SYSTEM
-
         try:
-            self.bus = await MessageBus(bus_type=bus_type).connect()
+            self.bus = await MessageBus(bus_type=self.bus_type).connect()
         except Exception as err:
             raise DBusClientError("Unable to connect to dbus.") from err
 
     async def disconnect(self) -> None:
-        if self.bus is not None:
+        """
+        Disconnects from an existing DBus connection.
+        """
+        if self.bus:
             self.bus.disconnect()
 
+    # pylint: disable-next=too-many-arguments
+    async def add_signal_receiver(
+        self,
+        callback: callable,
+        signal_name: str | None = None,
+        dbus_interface: str | None = None,
+        bus_name: str | None = None,
+        path: str | None = None,
+    ) -> bool:
+        """
+        Helper function which aims to recreate python-dbus's add_signal_receiver
+        method in dbus_next with asyncio calls.
+        Returns True if subscription is successful.
+        """
+        match_args = {
+            "type": "signal",
+            "sender": bus_name,
+            "member": signal_name,
+            "path": path,
+            "interface": dbus_interface,
+        }
+
+        rule = ",".join(f"{k}='{v}'" for k, v in match_args.items() if v)
+
+        try:
+            await self.call_method(
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "AddMatch",
+                "s",
+                rule,
+            )
+        except DBusClientError:
+            # Check if message sent successfully
+            logger.warning("Unable to add watch for DBus events (%s)", rule)
+            return False
+
+        def message_handler(message):
+            if message.message_type != MessageType.SIGNAL:
+                return
+
+            callback(*message.body, dbus_message=message)
+
+        self.bus.add_message_handler(message_handler)
+        return True
+
+    # pylint: disable-next=too-many-arguments
+    async def call_method(
+        self,
+        destination: str,
+        path: str,
+        interface: str,
+        member: str,
+        signature: str,
+        body: any,
+    ) -> any:
+        """
+        Calls any available DBus method and return its value
+        """
+        msg = await self._send_dbus_message(
+            MessageType.METHOD_CALL,
+            destination,
+            interface,
+            path,
+            member,
+            signature,
+            body,
+        )
+
+        if msg is None or msg.message_type != MessageType.METHOD_RETURN:
+            raise DBusClientError(f"Unable to call method on dbus: {msg.error_name}")
+
+        match len(msg.body):
+            case 0:
+                return None
+            case 1:
+                return msg.body[0]
+            case _:
+                return msg.body
+
+    # pylint: disable-next=too-many-arguments
     async def _send_dbus_message(
         self,
         message_type: MessageType,
@@ -72,102 +163,20 @@ class DBusClient:
             )
         )
 
-    async def find_dbus_service(self, service: str) -> bool:
-        """Looks up service name to see if it is currently available on dbus."""
 
-        # We're using low level interface here to reduce unnecessary calls for
-        # introspection etc.
-        names = await self.call_method(
-            destination = "org.freedesktop.DBus",
-            path = "/org/freedesktop/DBus",
-            interface = "org.freedesktop.DBus",
-            member = "ListNames",
-            signature = "",
-            body = [],
-        )
+class SessionDBusClient(DBusClient):
+    """
+    Session DBus client
+    """
 
-        if not names:
-            logger.warning("Unable to send lookup call to dbus.")
-            return False
-
-        return service in names
-
-    async def add_signal_receiver(
-        self,
-        callback: callable,
-        signal_name: str | None = None,
-        dbus_interface: str | None = None,
-        bus_name: str | None = None,
-        path: str | None = None,
-        check_service: bool = False,
-    ) -> bool:
-        """
-        Helper function which aims to recreate python-dbus's add_signal_receiver
-        method in dbus_next with asyncio calls.
-        If check_service is `True` the method will raise a warning and return False
-        if the service is not visible on the bus. If the `bus_name` is None, no
-        check will be performed.
-        Returns True if subscription is successful.
-        """
-        if bus_name and check_service:
-            found = await find_dbus_service(bus_name)
-            if not found:
-                logger.warning(
-                    "The %s name was not found on the bus. No callback will be attached.", bus_name
-                )
-                return False
-
-        match_args = {
-            "type": "signal",
-            "sender": bus_name,
-            "member": signal_name,
-            "path": path,
-            "interface": dbus_interface,
-        }
-
-        rule = ",".join("{}='{}'".format(k, v) for k, v in match_args.items() if v)
-
-        try:
-            await self.call_method(
-                "org.freedesktop.DBus",
-                "/org/freedesktop/DBus",
-                "org.freedesktop.DBus",
-                "AddMatch",
-                "s",
-                rule,
-            )
-        except DBusClientError:
-            # Check if message sent successfully
-            logger.warning("Unable to add watch for DBus events (%s)", rule)
-            return False
-
-        def message_handler(message):
-            if message.message_type != MessageType.SIGNAL:
-                return
-
-            callback(*message.body, dbus_message=message)
+    def __init__(self):
+        super().__init__(BusType.SESSION)
 
 
-        self.bus.add_message_handler(message_handler)
-        return True
+class SystemDBusClient(DBusClient):
+    """
+    System DBus client
+    """
 
-    async def call_method(
-        self, destination: str, path: str, interface: str, member: str, signature: str, body: any,
-    ) -> any:
-        """
-        Calls any available DBus method and return its value
-        """
-        msg = await self._send_dbus_message(
-            MessageType.METHOD_CALL, destination, interface, path, member, signature, body,
-        )
-
-        if msg is None or msg.message_type != MessageType.METHOD_RETURN:
-            raise DBusClientError(f"Unable to call method on dbus: {msg.error_name}")
-
-        match len(msg.body):
-            case 0:
-                return None
-            case 1:
-                return msg.body[0]
-            case _:
-                return msg.body
+    def __init__(self):
+        super().__init__(BusType.SYSTEM)

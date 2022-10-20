@@ -1,11 +1,14 @@
 # Copyright (c) 2022 Daniel Pereira
-# 
+#
 # SPDX-License-Identifier: Apache-2.0
 
-import os, sys, logging
+import os
+import sys
+import logging
 from .object_container import ObjectContainer
 from .event_listening import EventWatcher
 from .decorators import UseDecorator, OnDecorator
+
 
 class App:
     """
@@ -13,6 +16,7 @@ class App:
 
     Instantiate then hit `start()` to have it running.
     """
+
     def __init__(self, config_file: str, verbose: bool = False):
         self.config_file = config_file or self._default_config_file_path()
         self.event_watcher = None
@@ -28,8 +32,10 @@ class App:
         Setup the global application logging
         """
         log_level = "DEBUG" if self.verbose else "INFO"
-        log_format = "[%(levelname)s] [%(filename)s:%(funcName)s():L%(lineno)d] %(message)s"
-        logging.basicConfig(level = log_level, format = log_format)
+        log_format = (
+            "[%(levelname)s] [%(filename)s:%(funcName)s():L%(lineno)d] %(message)s"
+        )
+        logging.basicConfig(level=log_level, format=log_format)
 
     def setup_index_module_exports(self):
         """
@@ -38,15 +44,18 @@ class App:
         """
         decorators = self.create_decorators()
         for name, decorator in decorators.items():
-            setattr(sys.modules['wmcompanion'], name, decorator)
+            setattr(sys.modules["wmcompanion"], name, decorator)
 
     def create_decorators(self):
         """
         Instantiate all decorators that will be useful for the user config file
+
+        Whenever this gets changed, please also add a static reference to them on __init__.py to
+        help linters finding out what names this module exports.
         """
         return {
             "use": UseDecorator(self.object_container),
-            "on": OnDecorator(self.event_watcher)
+            "on": OnDecorator(self.event_watcher),
         }
 
     def start(self):

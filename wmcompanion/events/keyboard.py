@@ -2,18 +2,22 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ..utils.dbus_client import DBusClient
+import logging
+from ..utils.dbus_client import SessionDBusClient
 from ..event_listening import EventListener
+
+logger = logging.getLogger(__name__)
 
 class KbddChangeLayout(EventListener):
     """
     Reacts to kbdd layout changes
     """
     async def start(self):
-        client = DBusClient()
+        client = SessionDBusClient()
 
         # This is equivalent to running the following in the terminal:
-        # dbus-send --dest=ru.gentoo.KbddService /ru/gentoo/KbddService ru.gentoo.kbdd.getCurrentLayout
+        # dbus-send --dest=ru.gentoo.KbddService /ru/gentoo/KbddService \
+        #   ru.gentoo.kbdd.getCurrentLayout
         state = await client.call_method(
             destination = "ru.gentoo.KbddService",
             interface = "ru.gentoo.kbdd",

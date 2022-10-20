@@ -11,9 +11,10 @@
 # what the original lib proposed.
 #
 # See: https://github.com/chrisjbillington/inotify_simple
+# pylint: disable=invalid-name
 
-from os import fsencode, fsdecode, read, strerror, O_CLOEXEC, O_NONBLOCK
-from enum import Enum, IntEnum
+from os import fsencode, fsdecode, read, strerror, O_CLOEXEC
+from enum import IntEnum
 from collections import namedtuple
 from struct import unpack_from, calcsize
 from ctypes import CDLL, get_errno, c_int
@@ -25,12 +26,13 @@ from io import FileIO
 
 _libc = None
 
+
 def _libc_call(function, *args):
     """Wrapper which raises errors and retries on EINTR."""
     while True:
-        rc = function(*args)
-        if rc != -1:
-            return rc
+        return_code = function(*args)
+        if return_code != -1:
+            return return_code
         errno = get_errno()
         if errno != EINTR:
             raise OSError(errno, strerror(errno))
@@ -39,9 +41,9 @@ def _libc_call(function, *args):
 #: A ``namedtuple`` (wd, mask, cookie, name) for an inotify event. The
 #: :attr:`~inotify_simple.Event.name` field is a ``str`` decoded with
 #: ``os.fsdecode()``
-Event = namedtuple('Event', ['wd', 'mask', 'cookie', 'name'])
+Event = namedtuple("Event", ["wd", "mask", "cookie", "name"])
 
-_EVENT_FMT = 'iIII'
+_EVENT_FMT = "iIII"
 _EVENT_SIZE = calcsize(_EVENT_FMT)
 
 
@@ -83,12 +85,13 @@ class INotify(FileIO):
                 manually with ``os.read(fd)``) to raise ``BlockingIOError`` if no data
                 is available."""
         try:
-            libc_so = find_library('c')
-        except RuntimeError: # Python on Synology NASs raises a RuntimeError
+            libc_so = find_library("c")
+        except RuntimeError:  # Python on Synology NASs raises a RuntimeError
             libc_so = None
-        global _libc; _libc = _libc or CDLL(libc_so or 'libc.so.6', use_errno=True)
+        global _libc  # pylint: disable=global-statement
+        _libc = _libc or CDLL(libc_so or "libc.so.6", use_errno=True)
         flags = (not inheritable) * O_CLOEXEC
-        FileIO.__init__(self, _libc_call(_libc.inotify_init1, flags), mode='rb')
+        FileIO.__init__(self, _libc_call(_libc.inotify_init1, flags), mode="rb")
 
     def add_watch(self, path, mask):
         """Wrapper around ``inotify_add_watch()``. Returns the watch
@@ -99,7 +102,7 @@ class INotify(FileIO):
                 ``os.fsencode()`` before being passed to ``inotify_add_watch()``.
 
             mask (int): The mask of events to watch for. Can be constructed by
-                bitwise-ORing :class:`~inotify_simple.flags` together.
+                bitwise-ORing :class:`~inotify_simple.Flags` together.
 
         Returns:
             int: watch descriptor"""
@@ -130,7 +133,7 @@ class INotify(FileIO):
         bytes_avail = c_int()
         ioctl(self.fileno(), FIONREAD, bytes_avail)
         if not bytes_avail.value:
-            return b''
+            return b""
         return read(self.fileno(), bytes_avail.value)
 
 
@@ -150,15 +153,16 @@ def parse_events(data):
     while pos < len(data):
         wd, mask, cookie, namesize = unpack_from(_EVENT_FMT, data, pos)
         pos += _EVENT_SIZE + namesize
-        name = data[pos - namesize : pos].split(b'\x00', 1)[0]
+        name = data[pos - namesize : pos].split(b"\x00", 1)[0]
         events.append(Event(wd, mask, cookie, fsdecode(name)))
     return events
 
 
-class flags(IntEnum):
+class Flags(IntEnum):
     """Inotify flags as defined in ``inotify.h`` but with ``IN_`` prefix omitted.
-    Includes a convenience method :func:`~inotify_simple.flags.from_mask` for extracting
+    Includes a convenience method :func:`~inotify_simple.Flags.from_mask` for extracting
     flags from a mask."""
+
     ACCESS = 0x00000001  #: File was accessed
     MODIFY = 0x00000002  #: File was modified
     ATTRIB = 0x00000004  #: Metadata changed
@@ -189,15 +193,27 @@ class flags(IntEnum):
         return [flag for flag in cls.__members__.values() if flag & mask]
 
 
-class masks(IntEnum):
+class Masks(IntEnum):
     """Convenience masks as defined in ``inotify.h`` but with ``IN_`` prefix omitted."""
-    #: helper event mask equal to ``flags.CLOSE_WRITE | flags.CLOSE_NOWRITE``
-    CLOSE = flags.CLOSE_WRITE | flags.CLOSE_NOWRITE
-    #: helper event mask equal to ``flags.MOVED_FROM | flags.MOVED_TO``
-    MOVE = flags.MOVED_FROM | flags.MOVED_TO
+
+    #: helper event mask equal to ``Flags.CLOSE_WRITE | Flags.CLOSE_NOWRITE``
+    CLOSE = Flags.CLOSE_WRITE | Flags.CLOSE_NOWRITE
+    #: helper event mask equal to ``Flags.MOVED_FROM | Flags.MOVED_TO``
+    MOVE = Flags.MOVED_FROM | Flags.MOVED_TO
 
     #: bitwise-OR of all the events that can be passed to
     #: :func:`~inotify_simple.INotify.add_watch`
-    ALL_EVENTS  = (flags.ACCESS | flags.MODIFY | flags.ATTRIB | flags.CLOSE_WRITE |
-        flags.CLOSE_NOWRITE | flags.OPEN | flags.MOVED_FROM | flags.MOVED_TO |
-        flags.CREATE | flags.DELETE| flags.DELETE_SELF | flags.MOVE_SELF)
+    ALL_EVENTS = (
+        Flags.ACCESS
+        | Flags.MODIFY
+        | Flags.ATTRIB
+        | Flags.CLOSE_WRITE
+        | Flags.CLOSE_NOWRITE
+        | Flags.OPEN
+        | Flags.MOVED_FROM
+        | Flags.MOVED_TO
+        | Flags.CREATE
+        | Flags.DELETE
+        | Flags.DELETE_SELF
+        | Flags.MOVE_SELF
+    )

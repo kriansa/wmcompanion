@@ -2,10 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import functools, types
+import functools
+import types
 from collections import namedtuple
 from .object_container import ObjectContainer
 from .event_listening import EventWatcher
+
 
 class SoftDecorator:
     """
@@ -27,9 +29,10 @@ class SoftDecorator:
     to say that this does not automatically change the function, instead it only creates a new
     function with the expected behavior applied when you call `with_decorators()` on the function.
     """
-    FUNCTION_ATTR_KEY_NAME = '_annotation_decorators'
 
-    DecoratorEnvelope = namedtuple('DecoratorEnvelope', ['object', 'args', 'kwargs'])
+    FUNCTION_ATTR_KEY_NAME = "_annotation_decorators"
+
+    DecoratorEnvelope = namedtuple("DecoratorEnvelope", ["object", "args", "kwargs"])
 
     def __call__(self, *args, **kwargs):
         """
@@ -38,6 +41,7 @@ class SoftDecorator:
         When called, it saves this decorator object and the arguments (args and kwargs) passed to
         the decorator as internal properties to the function metadata.
         """
+
         def decorator(function: callable):
             self.add_self_reference(function, args, kwargs)
             self.after_declared(function, args, kwargs)
@@ -53,7 +57,6 @@ class SoftDecorator:
 
         This is useful so we don't end up overriding `__call__`
         """
-        pass
 
     def add_self_reference(self, function: callable, args: list, kwargs: dict):
         """
@@ -65,17 +68,18 @@ class SoftDecorator:
             setattr(function, self.FUNCTION_ATTR_KEY_NAME, [])
 
             function_attr_key_name = self.FUNCTION_ATTR_KEY_NAME
+
             def with_decorators(self) -> callable:
                 """
                 Returns a new function, with all soft decorators applied in the order they have been
                 declared.
                 """
                 function = self
-                for decorator_envelope in reversed(getattr(self, function_attr_key_name)):
+                for decorator_envelope in reversed(
+                    getattr(self, function_attr_key_name)
+                ):
                     function = decorator_envelope.object.apply(
-                        function,
-                        decorator_envelope.args,
-                        decorator_envelope.kwargs
+                        function, decorator_envelope.args, decorator_envelope.kwargs
                     )
                 return function
 
@@ -96,12 +100,13 @@ class SoftDecorator:
         args - Is the list of arguments passed to the decorator (@dec(arg1, arg2))
         kwargs - Is a dict with the keyword arguments passed to the decorator (@dec(arg="val"))
         """
-        return function
+
 
 class UseDecorator(SoftDecorator):
     """
     Inject dependencies on the function at runtime by means of an ObjectContainer.
     """
+
     def __init__(self, object_container: ObjectContainer):
         self.object_container = object_container
 
@@ -112,8 +117,11 @@ class UseDecorator(SoftDecorator):
             # Set the object to the leftmost parameter of the function
             curried_function = functools.partial(curried_function, obj)
             # Wraps it and make it look like the original function
-            curried_function = functools.update_wrapper(curried_function, function.original_function)
+            curried_function = functools.update_wrapper(
+                curried_function, function.original_function
+            )
         return curried_function
+
 
 class OnDecorator(SoftDecorator):
     """
@@ -139,6 +147,7 @@ class OnDecorator(SoftDecorator):
         @on([NetworkChange, dict(ifname="eth0")], [NetworkChange, { "ifname": "enp1s0" }])
         ```
     """
+
     event_object: any = None
 
     def __init__(self, event_watcher: EventWatcher):
@@ -166,8 +175,11 @@ class OnDecorator(SoftDecorator):
         # Mind you that this is not thread safe. Because all the work is done asynchronously on a
         # single thread, it is fine. However, having multiple `on` callbacks on a function that
         # triggers using different threads will ocasionally make this run into a race condition.
-        event_object = function.event_object if hasattr(function, 'event_object') else None
+        event_object = (
+            function.event_object if hasattr(function, "event_object") else None
+        )
         curried_function = functools.partial(function, event_object)
-        if event_object: del function.event_object
+        if event_object:
+            del function.event_object
         # Now wrap it and make it look like the original function
         return functools.update_wrapper(curried_function, function.original_function)

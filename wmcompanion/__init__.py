@@ -13,3 +13,11 @@
 # that method.
 
 __version__ = "0.5.0"
+
+# Below are the names that this module exports. They are here for static reference so linters can
+# find out what names this module exports.
+# They are actually defined on `app.py` - remember to keep the back ref when changing that file.
+#
+# pylint: disable=invalid-name
+use = "static-export"
+on = "static-export"

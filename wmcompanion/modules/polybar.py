@@ -2,7 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio, os, errno, glob, struct, logging
+import asyncio
+import os
+import glob
+import struct
+import logging
+from contextlib import suppress
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from ..errors import WMCompanionError
@@ -65,7 +70,8 @@ class Polybar:
         value previously set
         """
         def sync_io():
-            with open(f"{os.getenv('XDG_RUNTIME_DIR')}/polybar/{module}", "w") as out:
+            module_path = f"{os.getenv('XDG_RUNTIME_DIR')}/polybar/{module}"
+            with open(module_path, "w", encoding="utf-8") as out:
                 out.write(content)
 
         # REFACTOR: This is a copy of the same method on `event_listening.EventListener`
@@ -81,24 +87,23 @@ class Polybar:
         msg_type = 2
         data = (
             b"polyipc" # magic
-            + struct.pack("=BIB", ipc_version, len(payload), msg_type) # header: version, length, type
+            + struct.pack("=BIB", ipc_version, len(payload), msg_type) # version, length, type
             + payload
         )
 
         for name in glob.glob(f"{os.getenv('XDG_RUNTIME_DIR')}/polybar/*.sock"):
             try:
-                reader, writer = await asyncio.open_unix_connection(name)
-            except OSError as err:
-                if err.errno not in (errno.ENXIO, errno.ECONNREFUSED):
-                    raise WMCompanionError(f"Failed to connect to unix socket {name}") from err
-            finally:
-                try:
-                    writer.write(data)
-                    logger.debug(f"polybar action sent to socket {name}: {payload}")
+                with suppress(ConnectionError):
+                    reader, writer = await asyncio.open_unix_connection(name)
 
+                    # Write to the file
+                    writer.write(data)
                     await writer.drain()
+                    logger.debug("polybar action sent to socket %s: %s", name, payload)
+
+                    # Then close it
                     await reader.read()
                     writer.close()
                     await writer.wait_closed()
-                except:
-                    pass
+            except Exception as err:
+                raise WMCompanionError(f"Failed to connect to unix socket {name}") from err
