@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wmcompanion"
-version = "0.5.0"
+version = "0.6.0"
 license = "Apache-2.0"
 description = "wmcompanion is a utility for connecting system events to user actions"
 authors = ["Daniel Pereira <daniel@garajau.com.br>"]
