@@ -6,11 +6,45 @@ import asyncio
 import logging
 from enum import Enum
 from pathlib import Path
+from datetime import datetime
 from ..utils.dbus_client import SystemDBusClient
 from ..event_listening import EventListener
 from ..errors import WMCompanionError
 
 logger = logging.getLogger(__name__)
+
+
+class LogindIdleStatus(EventListener):
+    """
+    Listen for systemd-logind IdleHint events, which is how the desktop environment let systemd know
+    that it is idle so it can take actions such as automatically suspending. With this module, you
+    are able to hook on those events and perform those actions yourself.
+
+    See: https://www.freedesktop.org/wiki/Software/systemd/logind/
+    See: https://www.freedesktop.org/software/systemd/man/logind.conf.html
+    """
+
+    async def start(self):
+        def property_changed(prop, values, _, dbus_message):
+            if "/org/freedesktop/login1" not in dbus_message.path:
+                return
+
+            if prop == "org.freedesktop.login1.Manager" and "IdleHint" in values:
+                status = values["IdleHint"].value
+                time = datetime.fromtimestamp(values["IdleSinceHint"].value / 1000000)
+                self.run_coro(self.trigger({"idle": status, "idle-since": time}))
+
+        subscribed = await SystemDBusClient().add_signal_receiver(
+            callback=property_changed,
+            signal_name="PropertiesChanged",
+            dbus_interface="org.freedesktop.DBus.Properties",
+        )
+
+        if not subscribed:
+            logger.warning("Could not subscribe to DBus PropertiesChanged signal.")
+            raise RuntimeError(
+                "Fail to setup logind DBus signal receiver for PropertiesChanged"
+            )
 
 
 class PowerActions(EventListener):
