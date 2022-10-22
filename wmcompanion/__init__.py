@@ -18,6 +18,10 @@ __version__ = "0.6.0"
 # find out what names this module exports.
 # They are actually defined on `app.py` - remember to keep the back ref when changing that file.
 #
-# pylint: disable=invalid-name
-use = "static-export"
-on = "static-export"
+# pylint: disable=invalid-name, missing-function-docstring
+def use(*_, **__):
+    pass
+
+
+def on(*_, **__):
+    pass
