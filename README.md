@@ -1,6 +1,6 @@
-# wmcompanion
+# wmcompanion - "Build your own DE"
 
-You use a minimalist tiling window manager, yet you want to be able to tinker with your desktop more
+You use a minimalist tiling window manager , yet you want to be able to tinker with your desktop more
 easily and implement features like the ones available in full blown desktop environments?
 
 More specifically, you want to react to system events (such as returning from sleep, or wifi signal
