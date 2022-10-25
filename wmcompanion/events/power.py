@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+from glob import glob
 from enum import Enum
 from pathlib import Path
 from datetime import datetime
@@ -54,6 +55,7 @@ class PowerActions(EventListener):
     state.
     """
 
+    battery_path: str|None = None
     previous_level: int = 0
     previous_status: "BatteryStatus" = None
 
@@ -82,6 +84,7 @@ class PowerActions(EventListener):
         FULL = "Full"
 
     async def start(self):
+        await self.fetch_system_battery()
         await self.start_battery_poller()
         await self.start_acpi_listener()
         await self.start_wakeup_detector()
@@ -123,11 +126,10 @@ class PowerActions(EventListener):
 
     async def start_battery_poller(self):
         """
-        Starts a battery level poller that is only activated if the system has a battery
+        Starts an asynchronous battery level poller if the system has a battery
         """
-        if not await self.system_has_battery():
-            return
-        self.run_coro(self.battery_poller())
+        if await self.system_has_battery():
+            self.run_coro(self.battery_poller())
 
     async def battery_poller(self):
         """
@@ -183,18 +185,30 @@ class PowerActions(EventListener):
 
         return self.PowerSource.BATTERY
 
+    async def fetch_system_battery(self) -> bool:
+        """
+        Checks whether the system has a battery, then save its sys path to `battery_path`
+        """
+
+        def fetch_battery():
+            """Blocking I/O that get the first available battery on the system"""
+            batteries = glob("/sys/class/power_supply/BAT*")
+            if len(batteries) > 0 and Path(batteries[0]).is_dir():
+                self.battery_path = batteries[0]
+
+        return await self.run_blocking_io(fetch_battery)
+
     async def system_has_battery(self) -> bool:
         """
         Checks whether the system has a battery
         """
 
-        def has_battery():
-            """Blocking I/O that gets whether this system has battery or not"""
-            return Path("/sys/class/power_supply/BAT0").is_dir()
+        if self.battery_path is None:
+            await self.fetch_system_battery()
 
-        return await self.run_blocking_io(has_battery)
+        return bool(self.battery_path)
 
-    async def current_battery_status(self) -> BatteryStatus:
+    async def current_battery_status(self) -> BatteryStatus|None:
         """
         Get the current battery status
         """
@@ -205,19 +219,25 @@ class PowerActions(EventListener):
             (Not Charging, Charging, Discharging, Unknown, Full)
             """
             return (
-                Path("/sys/class/power_supply/BAT0/status").read_text("utf-8").strip()
+                Path(f"{self.battery_path}/status").read_text("utf-8").strip()
             )
+
+        if not await self.system_has_battery():
+            return None
 
         return self.BatteryStatus(await self.run_blocking_io(battery_status))
 
-    async def current_battery_level(self) -> int:
+    async def current_battery_level(self) -> int|None:
         """
         Get the current battery level
         """
 
         def battery_capacity():
             """Blocking I/O that gets the battery capacity"""
-            return Path("/sys/class/power_supply/BAT0/capacity").read_text("utf-8")
+            return Path(f"{self.battery_path}/capacity").read_text("utf-8")
+
+        if not await self.system_has_battery():
+            return None
 
         return int(await self.run_blocking_io(battery_capacity))
 
