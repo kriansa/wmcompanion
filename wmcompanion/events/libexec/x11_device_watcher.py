@@ -5,6 +5,16 @@
 """
 Watch for screen, keyboard and mice plug/unplug events and reports them through STDOUT.
 
+The reason why this is a separate application/process is because it depends on xcffib, which is a
+FFI extension and relies on C code, which might not have a good integration with python, especially
+when it comes to event handling as the C codebase doesn't have cooperative scheduling with Python.
+This forces us to use some hacks to get the job done, namely running the C event loop on a separate
+thread and enforcing this gets force killed if necessary, in case it doesn't respond in time.
+Because this is a global behavior and the entire Python VM would be affected by it, it was decided
+to keep this hack piece apart so that if it fails we can easily get rid of the process without
+interfering in the operation on the main process. As an advantage to this, one can easily port this
+code to any codebase or even run is as a separate application and it will just work.
+
 Dependencies:
 - Required: xcffib       (Arch: python-xcffib)
 - Optional: acpi-daemon  (Arch: acpid)
@@ -13,7 +23,7 @@ Useful constant locations:
 * /usr/include/X11/X.h
 * /usr/include/X11/extensions/Xrandr.h
 * /usr/include/X11/extensions/randr.h
-* /usr/include/X11/extensions/Xinput2.h
+* /usr/include/X11/extensions/XInput2.h
 """
 
 import os
