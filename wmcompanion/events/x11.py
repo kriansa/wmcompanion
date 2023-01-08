@@ -21,7 +21,7 @@ class DeviceState(EventListener):
     xinput and screen resolution with xrandr.
     """
 
-    previous_trigger_checksum: str = ""
+    previous_trigger_checksum: dict = None
 
     class ChangeEvent(Enum):
         """
@@ -43,6 +43,7 @@ class DeviceState(EventListener):
         FLOATING_SLAVE = "floating-slave"
 
     async def start(self):
+        self.previous_trigger_checksum = {}
         cmd = [
             "python",
             Path(__file__).parent.joinpath("libexec/x11_device_watcher.py"),
@@ -58,31 +59,45 @@ class DeviceState(EventListener):
         """
         while line := await proc.stdout.readline():
             event = json.loads(line.decode("utf-8"))
+
+            # Detect and prevent duplicate events.
+            #
+            # Although the duplication detection already exists at EventListener, it only works for
+            # events of the same kind, but because this class treats two kinds of changes (input OR
+            # screens) as if they were only one, then it won't help and we need to do the work on
+            # this class.
+            #
+            # We do the detection by checking the `state.active` key, where active input and screens
+            # are stored and thus the key to determine whether this is a duplicate event based on
+            # the last one triggered.
+            #
+            # This duplicate prevention is very important because by default the X11 helper process
+            # gets restarted every hour, and each time it starts, the entire state is resent as an
+            # event, but no necessarily a change would happen.
+            trigger_checksum = zlib.adler32(pickle.dumps(event["state"]["active"]))
+            if trigger_checksum == self.previous_trigger_checksum.get(event["action"]):
+                continue
+
+            self.previous_trigger_checksum[event["action"]] = trigger_checksum
+
             match event["action"]:
                 case "screen-change":
                     await self.trigger(
                         {
                             "event": self.ChangeEvent.SCREEN_CHANGE,
                             "screens": event["state"]["active"],
-                        }
+                        },
+                        allow_duplicate_events=True,
                     )
 
                 case "input-change":
-                    # When handling input changes, ensure that we only use the active-inputs as the
-                    # unique key for comparing past events, as there is the possibility of this
-                    # being triggered twice even with no change in the existing device tree (eg.
-                    # when the process is restarted and the state is resent)
-                    unique_key = event["state"]["active"]
-                    trigger_checksum = zlib.adler32(pickle.dumps(unique_key))
-                    if trigger_checksum != self.previous_trigger_checksum:
-                        self.previous_trigger_checksum = trigger_checksum
-                        await self.trigger(
-                            {
-                                "event": self.ChangeEvent.INPUT_CHANGE,
-                                "inputs": event["state"],
-                            },
-                            allow_duplicate_events=True,
-                        )
+                    await self.trigger(
+                        {
+                            "event": self.ChangeEvent.INPUT_CHANGE,
+                            "inputs": event["state"],
+                        },
+                        allow_duplicate_events=True,
+                    )
 
                 case "error":
                     logger.error(
