@@ -73,6 +73,7 @@ try:
         DeviceType,
         EventMask,
         XIEventMask,
+        HierarchyEvent,
     )
 except ModuleNotFoundError as e:
     RPCPrinter.error("Python xcffib module is not installed!")
@@ -226,7 +227,8 @@ class X11Client:
             if isinstance(event["value"], Exception):
                 raise event["value"]
 
-            if isinstance(event["value"], GeGenericEvent):
+            # GeGenericEvent is for compatibility with xcffib < 1.2.0
+            if isinstance(event["value"], (GeGenericEvent, HierarchyEvent)):
                 callback(EventType.INPUT_CHANGE)
 
             if isinstance(event["value"], ScreenChangeNotifyEvent):
