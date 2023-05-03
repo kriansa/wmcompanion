@@ -12,7 +12,7 @@
 # `app.App#setup_index_module_exports`, so if you need to find out what they are, just go and read
 # that method.
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
 
 # Below are the names that this module exports. They are here for static reference so linters can
 # find out what names this module exports.
