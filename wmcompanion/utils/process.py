@@ -4,6 +4,7 @@
 
 import asyncio
 import asyncio.subprocess
+from typing import Coroutine
 from datetime import datetime, timedelta
 from logging import getLogger
 
@@ -35,13 +36,13 @@ class ProcessWatcher:  # pylint: disable=too-many-instance-attributes
         self.failure_callback = lambda: None
         self.proc = None
 
-    def on_start(self, callback: asyncio.coroutine):
+    def on_start(self, callback: Coroutine):
         """
         Sets a callback to be called when the process starts
         """
         self.start_callback = callback
 
-    def on_failure(self, callback: asyncio.coroutine):
+    def on_failure(self, callback: Coroutine):
         """
         Sets a callback to be called when the process execution fails
         """
@@ -117,7 +118,7 @@ class ProcessWatcher:  # pylint: disable=too-many-instance-attributes
             )
             await self.failure_callback()
 
-    def _add_to_loop(self, coro: asyncio.coroutine):
+    def _add_to_loop(self, coro: Coroutine):
         task = asyncio.get_running_loop().create_task(coro)
         # Add the coroutine to the set, creating a strong reference and preventing it from being
         # garbage-collected before it's finished

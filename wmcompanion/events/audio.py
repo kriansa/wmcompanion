@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+from typing import Coroutine
 from pathlib import Path
 from decimal import Decimal
 from ..utils.inotify_simple import INotify, Flags as INotifyFlags
@@ -61,7 +62,7 @@ class MainVolumeLevel(EventListener):
         watcher = ProcessWatcher(cmd, restart_every=3600)
         self.restart_watcher = watcher.restart
 
-        async def read_events(proc: "asyncio.coroutine"):
+        async def read_events(proc: Coroutine):
             while line := await proc.stdout.readline():
                 direction, level, muted, available = (
                     line.decode("ascii").strip().split(":")

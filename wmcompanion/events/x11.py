@@ -6,6 +6,7 @@ import json
 import logging
 import zlib
 import pickle
+from typing import Coroutine
 from pathlib import Path
 from enum import Enum
 from ..event_listening import EventListener
@@ -53,7 +54,7 @@ class DeviceState(EventListener):
         watcher.on_failure(self.on_failure)
         await watcher.start()
 
-    async def read_events(self, proc: "asyncio.coroutine"):
+    async def read_events(self, proc: Coroutine):
         """
         Reads and processes any event coming from X11 Device Watcher daemon
         """

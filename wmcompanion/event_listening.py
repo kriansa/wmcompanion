@@ -9,6 +9,7 @@ import logging
 import signal
 import traceback
 import gc
+from typing import Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from importlib.util import spec_from_loader, module_from_spec
 from importlib.machinery import SourceFileLoader
@@ -48,7 +49,7 @@ class EventListener:
         """
         self.callbacks.append(callback)
 
-    def run_coro(self, coro: asyncio.coroutine):
+    def run_coro(self, coro: Coroutine):
         """
         Adds a coroutine to the main event loop. It has a similar behavior than what you would
         expect from `asyncio.run()` - but it instead uses the same event loop the application is on.
@@ -131,7 +132,7 @@ class EventWatcher:
 
         return self.listeners[lookup]
 
-    def add_callback(self, event: list[type, dict], callback: asyncio.coroutine):
+    def add_callback(self, event: list[type, dict], callback: Coroutine):
         """
         Adds a function as a callback to an event listener. If that event listener is not yet
         registered, then it will be instantiated and registered accordingly before callback is set.
@@ -179,7 +180,7 @@ class EventWatcher:
                 f"Config file not found at '{self.config_file}'"
             ) from err
 
-    def run_coro(self, coro: asyncio.coroutine) -> asyncio.Task:
+    def run_coro(self, coro: Coroutine) -> asyncio.Task:
         """
         As recommended by Python docs, add the coroutine to a set before adding it to the loop. This
         creates a strong reference and prevents it being garbage-collected before it is done.
